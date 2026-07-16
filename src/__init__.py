@@ -1,0 +1,2 @@
+"""Finance dashboard application package."""
+
