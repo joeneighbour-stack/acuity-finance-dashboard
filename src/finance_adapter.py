@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+import json
 import os
 from pathlib import Path
 import re
@@ -18,6 +19,8 @@ from typing import Mapping, Sequence, Union
 Cell = Union[str, int, float, bool, None]
 Row = Sequence[Cell]
 LIVE_TOTALS_WORKSHEET = "LIVE Totals"
+GOOGLE_SHEETS_SCOPES = ("https://www.googleapis.com/auth/spreadsheets.readonly",)
+GOOGLE_CREDENTIALS_ERROR = "Google service-account credentials are not configured correctly."
 
 
 def _load_dotenv() -> None:
@@ -46,6 +49,42 @@ class LabelNotFoundError(FinanceDataError):
 
 class ValueParseError(FinanceDataError):
     """Raised when a mapped value cannot be converted to its declared type."""
+
+
+def load_google_credentials(scopes: Sequence[str] = GOOGLE_SHEETS_SCOPES):
+    """Load Railway JSON credentials first, with local file fallback."""
+    try:
+        from google.oauth2 import service_account
+    except ImportError as exc:
+        raise FinanceDataError(
+            "Install google-auth to authenticate with Google Sheets"
+        ) from exc
+
+    credentials_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    if credentials_json:
+        try:
+            credentials_info = json.loads(credentials_json)
+            if not isinstance(credentials_info, dict):
+                raise ValueError("credentials must be a JSON object")
+            private_key = credentials_info.get("private_key")
+            if isinstance(private_key, str):
+                credentials_info["private_key"] = private_key.replace("\\n", "\n")
+            return service_account.Credentials.from_service_account_info(
+                credentials_info, scopes=scopes
+            )
+        except Exception as exc:
+            raise FinanceDataError(GOOGLE_CREDENTIALS_ERROR) from exc
+
+    credentials_file = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE", "").strip()
+    if credentials_file:
+        try:
+            return service_account.Credentials.from_service_account_file(
+                credentials_file, scopes=scopes
+            )
+        except Exception as exc:
+            raise FinanceDataError(GOOGLE_CREDENTIALS_ERROR) from exc
+
+    raise FinanceDataError(GOOGLE_CREDENTIALS_ERROR)
 
 
 class SheetReader:
@@ -382,13 +421,14 @@ class GoogleSheetsReader:
     """Google Sheets API implementation of :class:`SheetReader`.
 
     Imports are intentionally lazy so parsing and unit tests have no Google SDK
-    dependency. Credentials are read from GOOGLE_SERVICE_ACCOUNT_FILE.
+    dependency. Credentials are loaded from the Railway JSON environment
+    variable, with a local credential-file fallback.
     """
 
     def __init__(
         self,
         spreadsheet_id: str,
-        service_account_file: str,
+        service_account_file: str | None = None,
         worksheet: str = LIVE_TOTALS_WORKSHEET,
     ) -> None:
         self.spreadsheet_id = spreadsheet_id
@@ -400,25 +440,22 @@ class GoogleSheetsReader:
     def from_environment(cls) -> "GoogleSheetsReader":
         _load_dotenv()
         spreadsheet_id = os.environ.get("GOOGLE_SHEETS_ID")
-        credentials = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE")
-        if not spreadsheet_id or not credentials:
-            raise FinanceDataError("Set GOOGLE_SHEETS_ID and GOOGLE_SERVICE_ACCOUNT_FILE")
-        return cls(spreadsheet_id, credentials)
+        if not spreadsheet_id:
+            raise FinanceDataError("Set GOOGLE_SHEETS_ID")
+        return cls(spreadsheet_id)
 
     def worksheets(self) -> Mapping[str, Sequence[Row]]:
         if self._worksheet_cache is not None:
             return self._worksheet_cache
         try:
-            from google.oauth2.service_account import Credentials
             from googleapiclient.discovery import build
         except ImportError as exc:
             raise FinanceDataError(
                 "Install google-api-python-client and google-auth to read Google Sheets"
             ) from exc
-        credentials = Credentials.from_service_account_file(
-            self.service_account_file,
-            scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"],
-        )
+        if self.service_account_file and not os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON"):
+            os.environ.setdefault("GOOGLE_SERVICE_ACCOUNT_FILE", self.service_account_file)
+        credentials = load_google_credentials()
         service = build("sheets", "v4", credentials=credentials, cache_discovery=False)
         escaped_title = self.worksheet.replace("'", "''")
         result = service.spreadsheets().values().get(

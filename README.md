@@ -22,7 +22,8 @@ Set these variables on both application services:
 
 - `DATABASE_URL` — use a Railway variable reference to the PostgreSQL service.
 - `GOOGLE_SHEETS_ID` — the finance workbook ID.
-- `GOOGLE_SERVICE_ACCOUNT_FILE` — path to a service-account JSON file available inside the service, or mount the JSON as a Railway secret file.
+- `GOOGLE_SERVICE_ACCOUNT_JSON` — the complete service-account JSON value. This is the recommended Railway configuration.
+- `GOOGLE_SERVICE_ACCOUNT_FILE` — optional local-development fallback containing a path to the JSON file.
 
 Set `HUBSPOT_ACCESS_TOKEN` on the dashboard service. Never paste credential contents into the repository or build logs.
 

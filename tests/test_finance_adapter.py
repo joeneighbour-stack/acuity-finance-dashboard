@@ -1,10 +1,13 @@
 from decimal import Decimal
+import json
+import os
 import unittest
+from unittest.mock import Mock, patch
 
 from src.finance_adapter import (
     LIVE_TOTALS_WORKSHEET, ChartPoint, GoogleSheetsReader, active_clients,
     billing_by_entity, current_mrr, grr_quarterly, marketreader_snapshot,
-    nrr_quarterly,
+    nrr_quarterly, FinanceDataError, load_google_credentials,
 )
 
 
@@ -49,6 +52,43 @@ class FinanceAdapterTests(unittest.TestCase):
     def test_google_reader_defaults_to_live_totals_only(self):
         reader = GoogleSheetsReader("sheet-id", "credentials.json")
         self.assertEqual(reader.worksheet, LIVE_TOTALS_WORKSHEET)
+
+    @patch("google.oauth2.service_account.Credentials.from_service_account_file")
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_google_credentials_use_json_environment_variable(self, from_info, from_file):
+        expected = Mock()
+        from_info.return_value = expected
+        value = json.dumps({"type": "service_account", "private_key": "line-one\\nline-two"})
+        with patch.dict(os.environ, {
+            "GOOGLE_SERVICE_ACCOUNT_JSON": value,
+            "GOOGLE_SERVICE_ACCOUNT_FILE": "must-not-be-used.json",
+        }, clear=False):
+            credentials = load_google_credentials()
+        self.assertIs(credentials, expected)
+        from_file.assert_not_called()
+
+    @patch("google.oauth2.service_account.Credentials.from_service_account_file")
+    def test_google_credentials_use_local_file_fallback(self, from_file):
+        expected = Mock()
+        from_file.return_value = expected
+        with patch.dict(os.environ, {"GOOGLE_SERVICE_ACCOUNT_FILE": "local-credentials.json"}, clear=False):
+            with patch.dict(os.environ, {"GOOGLE_SERVICE_ACCOUNT_JSON": ""}, clear=False):
+                credentials = load_google_credentials()
+        self.assertIs(credentials, expected)
+        from_file.assert_called_once_with("local-credentials.json", scopes=("https://www.googleapis.com/auth/spreadsheets.readonly",))
+
+    def test_google_credentials_missing_has_safe_error(self):
+        with patch.dict(os.environ, {"GOOGLE_SERVICE_ACCOUNT_JSON": "", "GOOGLE_SERVICE_ACCOUNT_FILE": ""}, clear=False):
+            with self.assertRaisesRegex(FinanceDataError, "Google service-account credentials are not configured correctly"):
+                load_google_credentials()
+
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_google_credentials_convert_escaped_private_key_newlines(self, from_info):
+        value = json.dumps({"type": "service_account", "private_key": "first\\nsecond"})
+        with patch.dict(os.environ, {"GOOGLE_SERVICE_ACCOUNT_JSON": value}, clear=False):
+            load_google_credentials()
+        credentials_info = from_info.call_args[0][0]
+        self.assertEqual(credentials_info["private_key"], "first\nsecond")
 
     def test_marketreader_is_not_merged_with_acuity(self):
         class PairedReader:
