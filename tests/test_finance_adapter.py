@@ -1,4 +1,5 @@
 from decimal import Decimal
+import base64
 import json
 import os
 import unittest
@@ -60,6 +61,7 @@ class FinanceAdapterTests(unittest.TestCase):
         from_info.return_value = expected
         value = json.dumps({"type": "service_account", "private_key": "line-one\\nline-two"})
         with patch.dict(os.environ, {
+            "GOOGLE_SERVICE_ACCOUNT_JSON_B64": "",
             "GOOGLE_SERVICE_ACCOUNT_JSON": value,
             "GOOGLE_SERVICE_ACCOUNT_FILE": "must-not-be-used.json",
         }, clear=False):
@@ -68,24 +70,59 @@ class FinanceAdapterTests(unittest.TestCase):
         from_file.assert_not_called()
 
     @patch("google.oauth2.service_account.Credentials.from_service_account_file")
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_google_credentials_use_base64_json_first(self, from_info, from_file):
+        expected = Mock()
+        from_info.return_value = expected
+        encoded = base64.b64encode(json.dumps({
+            "type": "service_account", "private_key": "first\\nsecond"
+        }).encode("utf-8")).decode("ascii")
+        with patch.dict(os.environ, {
+            "GOOGLE_SERVICE_ACCOUNT_JSON_B64": encoded,
+            "GOOGLE_SERVICE_ACCOUNT_JSON": "must-not-be-parsed",
+            "GOOGLE_SERVICE_ACCOUNT_FILE": "must-not-be-used.json",
+        }, clear=False):
+            credentials = load_google_credentials()
+        self.assertIs(credentials, expected)
+        self.assertEqual(from_info.call_args[0][0]["private_key"], "first\nsecond")
+        from_file.assert_not_called()
+
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_invalid_base64_has_safe_error(self, from_info):
+        with patch.dict(os.environ, {
+            "GOOGLE_SERVICE_ACCOUNT_JSON_B64": "not-valid-base64!",
+            "GOOGLE_SERVICE_ACCOUNT_JSON": json.dumps({"type": "service_account"}),
+        }, clear=False):
+            with self.assertRaisesRegex(FinanceDataError, "Google service-account credentials are not configured correctly"):
+                load_google_credentials()
+        from_info.assert_not_called()
+
+    @patch("google.oauth2.service_account.Credentials.from_service_account_file")
     def test_google_credentials_use_local_file_fallback(self, from_file):
         expected = Mock()
         from_file.return_value = expected
-        with patch.dict(os.environ, {"GOOGLE_SERVICE_ACCOUNT_FILE": "local-credentials.json"}, clear=False):
-            with patch.dict(os.environ, {"GOOGLE_SERVICE_ACCOUNT_JSON": ""}, clear=False):
-                credentials = load_google_credentials()
+        with patch.dict(os.environ, {
+            "GOOGLE_SERVICE_ACCOUNT_JSON_B64": "",
+            "GOOGLE_SERVICE_ACCOUNT_JSON": "",
+            "GOOGLE_SERVICE_ACCOUNT_FILE": "local-credentials.json",
+        }, clear=False):
+            credentials = load_google_credentials()
         self.assertIs(credentials, expected)
         from_file.assert_called_once_with("local-credentials.json", scopes=("https://www.googleapis.com/auth/spreadsheets.readonly",))
 
     def test_google_credentials_missing_has_safe_error(self):
-        with patch.dict(os.environ, {"GOOGLE_SERVICE_ACCOUNT_JSON": "", "GOOGLE_SERVICE_ACCOUNT_FILE": ""}, clear=False):
+        with patch.dict(os.environ, {
+            "GOOGLE_SERVICE_ACCOUNT_JSON_B64": "",
+            "GOOGLE_SERVICE_ACCOUNT_JSON": "",
+            "GOOGLE_SERVICE_ACCOUNT_FILE": "",
+        }, clear=False):
             with self.assertRaisesRegex(FinanceDataError, "Google service-account credentials are not configured correctly"):
                 load_google_credentials()
 
     @patch("google.oauth2.service_account.Credentials.from_service_account_info")
     def test_google_credentials_convert_escaped_private_key_newlines(self, from_info):
         value = json.dumps({"type": "service_account", "private_key": "first\\nsecond"})
-        with patch.dict(os.environ, {"GOOGLE_SERVICE_ACCOUNT_JSON": value}, clear=False):
+        with patch.dict(os.environ, {"GOOGLE_SERVICE_ACCOUNT_JSON_B64": "", "GOOGLE_SERVICE_ACCOUNT_JSON": value}, clear=False):
             load_google_credentials()
         credentials_info = from_info.call_args[0][0]
         self.assertEqual(credentials_info["private_key"], "first\nsecond")

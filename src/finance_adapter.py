@@ -7,6 +7,7 @@ indexes cells or matches spreadsheet labels itself.
 
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 import json
@@ -52,7 +53,7 @@ class ValueParseError(FinanceDataError):
 
 
 def load_google_credentials(scopes: Sequence[str] = GOOGLE_SHEETS_SCOPES):
-    """Load Railway JSON credentials first, with local file fallback."""
+    """Load Base64 Railway credentials, then raw JSON, then a local file."""
     try:
         from google.oauth2 import service_account
     except ImportError as exc:
@@ -60,18 +61,28 @@ def load_google_credentials(scopes: Sequence[str] = GOOGLE_SHEETS_SCOPES):
             "Install google-auth to authenticate with Google Sheets"
         ) from exc
 
+    def credentials_from_info(credentials_info):
+        if not isinstance(credentials_info, dict):
+            raise ValueError("credentials must be a JSON object")
+        private_key = credentials_info.get("private_key")
+        if isinstance(private_key, str):
+            credentials_info["private_key"] = private_key.replace("\\n", "\n")
+        return service_account.Credentials.from_service_account_info(
+            credentials_info, scopes=scopes
+        )
+
+    credentials_b64 = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON_B64", "").strip()
+    if credentials_b64:
+        try:
+            decoded_json = base64.b64decode(credentials_b64, validate=True).decode("utf-8")
+            return credentials_from_info(json.loads(decoded_json))
+        except Exception as exc:
+            raise FinanceDataError(GOOGLE_CREDENTIALS_ERROR) from exc
+
     credentials_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
     if credentials_json:
         try:
-            credentials_info = json.loads(credentials_json)
-            if not isinstance(credentials_info, dict):
-                raise ValueError("credentials must be a JSON object")
-            private_key = credentials_info.get("private_key")
-            if isinstance(private_key, str):
-                credentials_info["private_key"] = private_key.replace("\\n", "\n")
-            return service_account.Credentials.from_service_account_info(
-                credentials_info, scopes=scopes
-            )
+            return credentials_from_info(json.loads(credentials_json))
         except Exception as exc:
             raise FinanceDataError(GOOGLE_CREDENTIALS_ERROR) from exc
 
@@ -453,7 +464,11 @@ class GoogleSheetsReader:
             raise FinanceDataError(
                 "Install google-api-python-client and google-auth to read Google Sheets"
             ) from exc
-        if self.service_account_file and not os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON"):
+        if (
+            self.service_account_file
+            and not os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON_B64")
+            and not os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+        ):
             os.environ.setdefault("GOOGLE_SERVICE_ACCOUNT_FILE", self.service_account_file)
         credentials = load_google_credentials()
         service = build("sheets", "v4", credentials=credentials, cache_discovery=False)
