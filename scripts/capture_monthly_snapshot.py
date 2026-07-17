@@ -7,12 +7,14 @@ from datetime import date, timedelta
 from pathlib import Path
 import sys
 
+from sqlalchemy import text
+
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.finance_adapter import GoogleSheetsReader, finance_snapshot, marketreader_snapshot
-from src.snapshots import save_monthly_snapshot, snapshot_exists
+from src.snapshots import get_engine, save_monthly_snapshot, snapshot_exists
 
 
 def previous_month(today: date | None = None) -> str:
@@ -40,6 +42,34 @@ def capture(force: bool = False) -> int:
             continue
         save_monthly_snapshot(entity, metrics, syft, snapshot_month=month)
         print("Saved {} snapshot for {}.".format(entity, month))
+
+    with get_engine().connect() as connection:
+        print("Database: {}".format(connection.execute(text("SELECT current_database()")).scalar_one()))
+        print("Schema: {}".format(connection.execute(text("SELECT current_schema()")).scalar_one()))
+        print("Current user: {}".format(connection.execute(text("SELECT current_user")).scalar_one()))
+        print(
+            "System identifier: {}".format(
+                connection.execute(text("SELECT system_identifier FROM pg_control_system()")).scalar_one()
+            )
+        )
+        print(
+            "Monthly snapshots row count: {}".format(
+                connection.execute(text("SELECT COUNT(*) FROM public.monthly_snapshots")).scalar_one()
+            )
+        )
+        rows = connection.execute(
+            text(
+                "SELECT snapshot_month, entity "
+                "FROM public.monthly_snapshots "
+                "WHERE snapshot_month = :snapshot_month "
+                "ORDER BY entity"
+            ),
+            {"snapshot_month": month},
+        ).all()
+        print("Current snapshot month rows (snapshot_month, entity):")
+        for snapshot_month, entity in rows:
+            print("  {}, {}".format(snapshot_month, entity))
+
     print("Snapshot capture complete.")
     return 0
 
