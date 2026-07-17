@@ -44,29 +44,24 @@ def capture(force: bool = False) -> int:
         print("Saved {} snapshot for {}.".format(entity, month))
 
     with get_engine().connect() as connection:
-        print("Database: {}".format(connection.execute(text("SELECT current_database()")).scalar_one()))
-        print("Schema: {}".format(connection.execute(text("SELECT current_schema()")).scalar_one()))
-        print("Current user: {}".format(connection.execute(text("SELECT current_user")).scalar_one()))
         print(
             "System identifier: {}".format(
-                connection.execute(text("SELECT system_identifier FROM pg_control_system()")).scalar_one()
+                connection.execute(text("SELECT system_identifier FROM pg_control_system();")).scalar_one()
             )
         )
         print(
             "Monthly snapshots row count: {}".format(
-                connection.execute(text("SELECT COUNT(*) FROM public.monthly_snapshots")).scalar_one()
+                connection.execute(text("SELECT COUNT(*) FROM public.monthly_snapshots;")).scalar_one()
             )
         )
         rows = connection.execute(
             text(
                 "SELECT snapshot_month, entity "
                 "FROM public.monthly_snapshots "
-                "WHERE snapshot_month = :snapshot_month "
-                "ORDER BY entity"
-            ),
-            {"snapshot_month": month},
+                "ORDER BY snapshot_month DESC, entity;"
+            )
         ).all()
-        print("Current snapshot month rows (snapshot_month, entity):")
+        print("Monthly snapshot rows (snapshot_month, entity):")
         for snapshot_month, entity in rows:
             print("  {}, {}".format(snapshot_month, entity))
 
