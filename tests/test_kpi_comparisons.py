@@ -33,6 +33,7 @@ class KPIComparisonTests(unittest.TestCase):
         self.assertEqual(variance.absolute_change, Decimal("5"))
         self.assertIsNone(variance.percentage_change)
         self.assertEqual(format_variance(5, 0, "count"), "▲ +5")
+        self.assertEqual(format_variance(Decimal("125.4"), 0, "currency"), "▲ +£125")
 
     def test_missing_current_value(self):
         self.assertEqual(calculate_variance(None, 10), (None, None))

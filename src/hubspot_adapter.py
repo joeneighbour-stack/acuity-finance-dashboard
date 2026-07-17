@@ -37,6 +37,8 @@ class Deal:
     close_date: Optional[date]
     created_date: Optional[date]
     closed_won: bool
+    closed: bool = False
+    stage_probability: Decimal = Decimal(0)
 
 
 @dataclass(frozen=True)
@@ -95,7 +97,10 @@ class HubSpotSnapshot:
     closed_won_prior: int
     sales_comparison_period: ComparisonPeriod
     pipeline_value: Decimal
+    pipeline_value_prior: Optional[Decimal]
     weighted_pipeline: Decimal
+    weighted_pipeline_prior: Optional[Decimal]
+    pipeline_history_available: bool
     pipeline_stages: Tuple[PipelineStagePoint, ...]
     renewal_stages: Tuple[StagePoint, ...]
     upcoming_renewals: Tuple[UpcomingRenewal, ...]
@@ -138,6 +143,30 @@ def _weighted_retail_deals(deals: Sequence[Deal]) -> List[Deal]:
         deal for deal in deals
         if deal.pipeline_id == RETAIL_PIPELINE_ID and deal.stage_id in RETAIL_WEIGHTED_STAGES
     ]
+
+
+def _open_retail_deals(deals: Sequence[Deal]) -> List[Deal]:
+    return [
+        deal for deal in deals
+        if deal.pipeline_id == RETAIL_PIPELINE_ID and not deal.closed
+    ]
+
+
+def _live_pipeline_values(deals: Sequence[Deal]) -> Tuple[Decimal, Decimal]:
+    open_deals = _open_retail_deals(deals)
+    pipeline_value = sum((deal.arr for deal in open_deals), Decimal(0))
+    weighted_value = sum(
+        (deal.arr * deal.stage_probability for deal in open_deals), Decimal(0)
+    )
+    return pipeline_value, weighted_value
+
+
+def _historical_comparison_values(
+    values: Optional[Tuple[Decimal, Decimal]],
+) -> Tuple[Optional[Decimal], Optional[Decimal], bool]:
+    if values is None:
+        return None, None, False
+    return values[0], values[1], True
 
 
 def _is_marketreader(deal: Deal) -> bool:
@@ -351,15 +380,34 @@ class HubSpotReader:
         )
         return count
 
+    def historical_pipeline_values(self, reporting_date: date) -> Optional[Tuple[Decimal, Decimal]]:
+        """Return None until complete deal and stage-probability history is available."""
+        logger.info(
+            "HubSpot historical pipeline reconstruction unavailable pipeline_id=%s reporting_date=%s",
+            self.retail_pipeline_id(), reporting_date.isoformat(),
+        )
+        return None
+
     def deals(self) -> Tuple[Deal, ...]:
         if self._deals is not None:
             return self._deals
         stage_names: Dict[Tuple[str, str], str] = {}
         won_stages = set()
+        closed_stages = set()
+        stage_probabilities: Dict[Tuple[str, str], Decimal] = {}
         for pipeline_id, pipeline in self.pipelines().items():
             for stage in pipeline.get("stages", []):
                 stage_names[(pipeline_id, stage["id"])] = stage.get("label", stage["id"])
-                if stage.get("metadata", {}).get("isClosed") == "true" and "won" in stage.get("label", "").casefold():
+                metadata = stage.get("metadata", {})
+                try:
+                    probability = Decimal(str(metadata.get("probability", "0")))
+                except InvalidOperation:
+                    probability = Decimal(0)
+                stage_probabilities[(pipeline_id, stage["id"])] = probability
+                is_closed = str(metadata.get("isClosed", "")).casefold() == "true"
+                if is_closed:
+                    closed_stages.add((pipeline_id, stage["id"]))
+                if is_closed and probability == Decimal("1"):
                     won_stages.add((pipeline_id, stage["id"]))
         results: List[Deal] = []
         after = None
@@ -391,6 +439,8 @@ class HubSpotReader:
                     close_date=_date(props.get("renewal_date") or props.get("closedate")),
                     created_date=_date(props.get("createdate")),
                     closed_won=(pipeline_id, stage_id) in won_stages,
+                    closed=(pipeline_id, stage_id) in closed_stages,
+                    stage_probability=stage_probabilities.get((pipeline_id, stage_id), Decimal(0)),
                 ))
             after = page.get("paging", {}).get("next", {}).get("after")
             if not after:
@@ -422,6 +472,9 @@ class HubSpotReader:
         if not renewal_pipeline or renewal_pipeline.get("label") != "Renewal Pipeline":
             raise HubSpotDataError("Acuity Renewal Pipeline (85559454) is unavailable or was renamed")
         retail = [deal for deal in self.deals() if deal.pipeline_id == retail_id]
+        historical_pipeline = _historical_comparison_values(
+            self.historical_pipeline_values(comparison_period.prior_end)
+        )
         renewals = [
             deal for deal in self.deals()
             if deal.pipeline_id == renewal_id
@@ -430,12 +483,12 @@ class HubSpotReader:
             and not _is_marketreader(deal)
         ]
         open_retail = _weighted_retail_deals(retail)
+        pipeline_value, weighted = _live_pipeline_values(retail)
         pipeline_stages = []
         for stage_id, (label, weight) in RETAIL_WEIGHTED_STAGES.items():
             stage_deals = [deal for deal in open_retail if deal.stage_id == stage_id]
             value = sum((deal.arr for deal in stage_deals), Decimal(0))
             pipeline_stages.append(PipelineStagePoint(label, len(stage_deals), value, value * weight))
-        weighted = sum((stage.weighted_value for stage in pipeline_stages), Decimal(0))
         upcoming: List[UpcomingRenewal] = []
         stage_labels = {
             "247553603": "> 6 months", "247553604": "4–6 months",
@@ -462,8 +515,11 @@ class HubSpotReader:
             closed_won=closed_won,
             closed_won_prior=closed_won_prior,
             sales_comparison_period=comparison_period,
-            pipeline_value=sum((deal.arr for deal in open_retail), Decimal(0)),
+            pipeline_value=pipeline_value,
+            pipeline_value_prior=historical_pipeline[0],
             weighted_pipeline=weighted,
+            weighted_pipeline_prior=historical_pipeline[1],
+            pipeline_history_available=historical_pipeline[2],
             pipeline_stages=tuple(pipeline_stages),
             renewal_stages=tuple(StagePoint(label, count) for label, count in buckets.items()),
             upcoming_renewals=tuple(sorted(upcoming, key=lambda item: item.close_date)),

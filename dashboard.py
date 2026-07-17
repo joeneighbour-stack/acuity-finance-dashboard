@@ -122,20 +122,21 @@ def comparison_metric(
     )
 
 
-def same_point_fy_metric(container, label: str, current_value, previous_value) -> None:
-    variance = format_variance(current_value, previous_value, "count")
+def same_point_fy_card_html(
+    label: str, display_value: str, current_value, previous_value, metric_type: str,
+) -> str:
+    variance = format_variance(current_value, previous_value, metric_type)
     variance_line = (
         '<div class="comparison-delta neutral">{}</div>'.format(escape(variance))
         if variance != "No prior-month comparison" else ""
     )
-    baseline = "vs same point last FY" if variance_line else "Comparison unavailable"
-    container.markdown(
+    baseline = "vs same point last FY" if variance_line else "Historical comparison unavailable"
+    return (
         '<div class="comparison-card">'
         '<div class="comparison-label">{}</div>'
-        '<div class="comparison-value">{:,}</div>{}'
+        '<div class="comparison-value">{}</div>{}'
         '<div class="comparison-baseline">{}</div>'
-        '</div>'.format(escape(label), current_value, variance_line, baseline),
-        unsafe_allow_html=True,
+        '</div>'.format(escape(label), escape(display_value), variance_line, escape(baseline))
     )
 
 
@@ -296,20 +297,45 @@ def renewals(finance: FinanceSnapshot, hubspot: HubSpotSnapshot, snapshot) -> No
 
 def sales(hubspot: HubSpotSnapshot) -> None:
     heading("Growth engine", "Sales Performance", "Retail Pipeline performance from HubSpot · {} financial year".format(financial_year_label()))
-    cols = st.columns(4)
-    same_point_fy_metric(cols[0], "Opportunities created this FY", hubspot.opportunities_created, hubspot.opportunities_created_prior)
-    same_point_fy_metric(cols[1], "Closed won this FY", hubspot.closed_won, hubspot.closed_won_prior)
-    cols[2].metric("Open pipeline value", money(hubspot.pipeline_value, True))
-    cols[3].metric("Weighted pipeline", money(hubspot.weighted_pipeline, True))
+    sales_cards = [
+        same_point_fy_card_html(
+            "Opportunities created this FY", "{:,}".format(hubspot.opportunities_created),
+            hubspot.opportunities_created, hubspot.opportunities_created_prior, "count",
+        ),
+        same_point_fy_card_html(
+            "Closed won this FY", "{:,}".format(hubspot.closed_won),
+            hubspot.closed_won, hubspot.closed_won_prior, "count",
+        ),
+        same_point_fy_card_html(
+            "Open pipeline value", money(hubspot.pipeline_value, True),
+            hubspot.pipeline_value, hubspot.pipeline_value_prior, "currency",
+        ),
+        same_point_fy_card_html(
+            "Weighted pipeline", money(hubspot.weighted_pipeline, True),
+            hubspot.weighted_pipeline, hubspot.weighted_pipeline_prior, "currency",
+        ),
+    ]
+    st.markdown(
+        '<div class="sales-kpi-grid">{}</div>'.format("".join(sales_cards)),
+        unsafe_allow_html=True,
+    )
     period = hubspot.sales_comparison_period
     with st.expander("Metric methodology"):
         st.markdown(
-            "Opportunities Created and Closed Won include Retail Pipeline deals only. "
-            "Year-on-year comparisons use the equivalent elapsed period in the previous financial year."
+            "All four metrics include Retail Pipeline deals only. Opportunities Created and Closed Won "
+            "are elapsed-period metrics. Open Pipeline and Weighted Pipeline are live point-in-time metrics; "
+            "closed deals are excluded and weighting uses current HubSpot stage probabilities."
         )
         st.caption(
             "Current: {0:%d %b %Y} to {1:%d %b %Y} · Prior: {2:%d %b %Y} to {3:%d %b %Y}".format(
                 period.current_start, period.current_end, period.prior_start, period.prior_end
+            )
+        )
+        st.caption(
+            "Point-in-time comparison dates: {0:%d %b %Y} and {1:%d %b %Y}. "
+            "Historical pipeline comparison is unavailable because the integration does not provide "
+            "complete property and stage-probability history for accurate reconstruction.".format(
+                period.current_end, period.prior_end
             )
         )
     st.write("")

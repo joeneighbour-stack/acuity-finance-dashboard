@@ -6,7 +6,8 @@ from src.hubspot_adapter import (
     ACUITY_RENEWAL_PIPELINE_ID, MARKETREADER_RENEWAL_PIPELINE_ID, Deal,
     ACUITY_RENEWAL_STAGE_IDS, CANCELLATION_RECEIVED_TAG_ID,
     HubSpotDataError, HubSpotReader, RETAIL_PIPELINE_ID, _date,
-    _financial_year_bounds, _is_marketreader, _same_point_prior_fy_period,
+    _financial_year_bounds, _historical_comparison_values, _is_marketreader,
+    _live_pipeline_values, _open_retail_deals, _same_point_prior_fy_period,
     _stage_weight, _weighted_retail_deals,
 )
 
@@ -35,6 +36,16 @@ class SearchReader(HubSpotReader):
 
 
 class HubSpotAdapterTests(unittest.TestCase):
+    @staticmethod
+    def pipeline_deal(identifier, pipeline_id=RETAIL_PIPELINE_ID, closed=False, probability="0.5", amount="100"):
+        return Deal(
+            id=identifier, name="Deal " + identifier, pipeline_id=pipeline_id,
+            stage_id="stage", stage="Stage", billing_entity="Acuity", tag_ids=(),
+            cancellation_received=False, cancellation_date=None, arr=Decimal(amount),
+            close_date=None, created_date=None, closed_won=False, closed=closed,
+            stage_probability=Decimal(probability),
+        )
+
     def test_live_stage_label_probabilities(self):
         self.assertEqual(_stage_weight("Trial (10%)"), Decimal("0"))
         self.assertEqual(_stage_weight("Trial Extension (20%)"), Decimal("0"))
@@ -145,6 +156,40 @@ class HubSpotAdapterTests(unittest.TestCase):
         ])
         self.assertEqual(reader.count_retail_deals("createdate", date(2026, 2, 1), date(2026, 7, 18)), 3)
         self.assertEqual(reader.search_payloads[1]["after"], "next-page")
+
+    def test_open_pipeline_excludes_closed_and_non_retail_deals(self):
+        deals = [
+            self.pipeline_deal("open"),
+            self.pipeline_deal("won", closed=True, probability="1"),
+            self.pipeline_deal("lost", closed=True, probability="0"),
+            self.pipeline_deal("other", pipeline_id="another-pipeline"),
+        ]
+        self.assertEqual([deal.id for deal in _open_retail_deals(deals)], ["open"])
+
+    def test_open_pipeline_value_uses_all_open_retail_deals(self):
+        deals = [
+            self.pipeline_deal("one", amount="100"),
+            self.pipeline_deal("two", amount="250"),
+            self.pipeline_deal("closed", closed=True, amount="999"),
+        ]
+        pipeline_value, _ = _live_pipeline_values(deals)
+        self.assertEqual(pipeline_value, Decimal("350"))
+
+    def test_weighted_pipeline_uses_current_stage_probabilities(self):
+        deals = [
+            self.pipeline_deal("one", amount="100", probability="0.25"),
+            self.pipeline_deal("two", amount="200", probability="0.6"),
+            self.pipeline_deal("closed", closed=True, amount="999", probability="1"),
+        ]
+        _, weighted_value = _live_pipeline_values(deals)
+        self.assertEqual(weighted_value, Decimal("145.00"))
+
+    def test_historical_reconstruction_path_accepts_complete_values(self):
+        result = _historical_comparison_values((Decimal("500"), Decimal("250")))
+        self.assertEqual(result, (Decimal("500"), Decimal("250"), True))
+
+    def test_historical_comparison_unavailable_without_complete_history(self):
+        self.assertEqual(_historical_comparison_values(None), (None, None, False))
 
 
 if __name__ == "__main__": unittest.main()

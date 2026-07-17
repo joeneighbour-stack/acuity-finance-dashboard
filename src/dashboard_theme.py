@@ -97,6 +97,7 @@ THEME_CSS = """
     font-variant-numeric: tabular-nums; font-weight: 600; }
   .comparison-card { min-height: 142px; padding: 1.15rem 1.2rem; }
   .comparison-card-static { display: flex; flex-direction: column; justify-content: flex-start; }
+  .sales-kpi-grid { display: grid; gap: var(--space-3); grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .comparison-label { margin-bottom: var(--space-1); }
   .comparison-value { font-size: clamp(1.55rem, 2.2vw, 2rem); letter-spacing: -.025em;
     line-height: 1.2; white-space: nowrap; }
@@ -124,6 +125,11 @@ THEME_CSS = """
     .block-container { padding-left: 1.35rem; padding-right: 1.35rem; }
     .comparison-card { padding: 1rem; }
     .comparison-value { font-size: 1.45rem; }
+    .sales-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
+  @media (max-width: 640px) {
+    .sales-kpi-grid { grid-template-columns: minmax(0, 1fr); }
   }
 </style>
 """
