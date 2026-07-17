@@ -1,10 +1,9 @@
 # Brand assets
 
-Place the original Acuity logo files supplied by the brand owner in this directory. The redesign brief did not include a logo binary, so the dashboard intentionally does not display an approximated, redrawn, recoloured, cropped, or stretched logo.
+This directory contains original Acuity logo files supplied by the brand owner.
 
-Preferred future files:
+Included:
 
-- `acuity-logo-dark.svg` for light backgrounds
-- `acuity-logo-white.svg` for Steel Grey backgrounds
+- `acuity-logo-white-orange.png` — approved white-and-orange logo used on the Steel Grey dashboard sidebar.
 
-Only original, approved assets should be added.
+The asset is rendered without recolouring, cropping, stretching, or visual effects, and its original aspect ratio is preserved. Only original, approved assets should be added.

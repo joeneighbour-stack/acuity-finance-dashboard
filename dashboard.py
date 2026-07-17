@@ -351,7 +351,7 @@ def marketreader_view(data: MarketReaderSnapshot, snapshot) -> None:
 
 
 with st.sidebar:
-    st.markdown('<div class="sidebar-brand">Finance dashboard</div>', unsafe_allow_html=True)
+    st.image("assets/branding/acuity-logo-white-orange.png", width=220)
     st.markdown('<div class="sidebar-subtitle">Finance &amp; commercial intelligence</div>', unsafe_allow_html=True)
     st.markdown('<div class="sidebar-section">Entity &amp; reporting</div>', unsafe_allow_html=True)
     entity = st.radio("Entity", ["Acuity", "MarketReader"], label_visibility="collapsed")

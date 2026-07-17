@@ -77,9 +77,14 @@ THEME_CSS = """
   [data-testid="stSidebar"] .stRadio label { padding: .18rem 0; }
   [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { line-height: 1.45; }
   [data-testid="stSidebar"] button { border-radius: var(--radius); }
-  [data-testid="stSidebar"] button:hover { border-color: var(--alert-orange); color: var(--steel-grey); }
-  .sidebar-brand { border-left: 3px solid var(--alert-orange); padding-left: .8rem;
-    font-family: var(--display-font); font-size: 1.45rem; line-height: 1.2; margin: .35rem 0 .25rem; }
+  [data-testid="stSidebar"] .stButton button,
+  [data-testid="stSidebar"] .stButton button * { color: var(--steel-grey) !important; }
+  [data-testid="stSidebar"] .stButton button { background: var(--surface); border-color: var(--surface); }
+  [data-testid="stSidebar"] .stButton button:hover { border-color: var(--alert-orange); }
+  [data-testid="stSidebar"] .stButton button:disabled,
+  [data-testid="stSidebar"] .stButton button:disabled * { color: #5F5F5B !important; opacity: 1; }
+  [data-testid="stSidebar"] [data-testid="stImage"] { margin: .5rem 0 .75rem; }
+  [data-testid="stSidebar"] [data-testid="stImage"] img { height: auto; max-width: 220px; width: 100%; }
   .sidebar-subtitle { color: #D7D7D2 !important; font-size: .82rem; margin-bottom: 1.7rem; }
   .sidebar-section { color: #D7D7D2 !important; font-size: .68rem; font-weight: 700;
     letter-spacing: .11em; margin: 1.15rem 0 .35rem; text-transform: uppercase; }

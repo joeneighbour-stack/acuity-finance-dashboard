@@ -8,7 +8,7 @@ Reviewed all Acuity pages (Executive Summary, Revenue & Contracts, Renewals & Re
 
 | Severity | Issue found | Change made |
 | --- | --- | --- |
-| High | Placeholder diamond mark could be mistaken for an approved logo. | Removed the placeholder completely. No replacement was fabricated because the attachment contained no logo asset. |
+| High | Placeholder diamond mark could be mistaken for an approved logo. | Replaced it with the supplied white-and-orange Acuity logo on the Steel Grey sidebar, preserving its aspect ratio. |
 | High | Entity and reporting context were separated and easy to miss. | Grouped entity/reporting controls and added a persistent context line showing the selected entity, live reporting state, and completed comparison period. |
 | High | Previous navy/teal/red styling did not match the supplied brand palette. | Centralized Steel Grey, Alert Orange, neutral, surface, and semantic comparison colours in `src/dashboard_theme.py`. |
 | Medium | Navigation, filters, refresh, and snapshot capture competed visually. | Added explicit sidebar sections and moved snapshot capture into a secondary administration disclosure. Capture logic is unchanged. |
@@ -38,10 +38,9 @@ Reviewed all Acuity pages (Executive Summary, Revenue & Contracts, Renewals & Re
 
 ## Remaining recommendations
 
-1. Supply original approved dark and white Acuity logo assets. The current attachment includes only text, so no logo is shown.
-2. Supply properly licensed webfont files if exact Soleil rendering is required. The dashboard currently uses the approved fallback stack.
-3. Supply or approve a DM Serif Text webfont asset if guaranteed cross-device rendering is required. The CSS requests the font but falls back to Georgia when it is unavailable.
-4. Consider a separate future accessibility review with automated contrast and keyboard testing in the deployed Railway environment.
+1. Supply properly licensed webfont files if exact Soleil rendering is required. The dashboard currently uses the approved fallback stack.
+2. Supply or approve a DM Serif Text webfont asset if guaranteed cross-device rendering is required. The CSS requests the font but falls back to Georgia when it is unavailable.
+3. Consider a separate future accessibility review with automated contrast and keyboard testing in the deployed Railway environment.
 
 ## Screenshots
 
