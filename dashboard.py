@@ -17,6 +17,7 @@ from src.finance_adapter import (
     FinanceSnapshot, GoogleSheetsReader, MarketReaderSnapshot, finance_snapshot,
     marketreader_snapshot,
 )
+from src.dashboard_theme import ALERT_ORANGE, STEEL_GREY, THEME_CSS, altair_theme
 from src.hubspot_adapter import HubSpotSnapshot, hubspot_snapshot
 from src.kpi_comparisons import (
     calculate_variance, format_snapshot_month, format_variance,
@@ -29,33 +30,9 @@ st.set_page_config(page_title="Acuity Finance", page_icon="◈", layout="wide")
 
 initialize_database()
 
-st.markdown("""
-<style>
-  .stApp { background: #f5f6f8; color: #17212b; }
-  [data-testid="stSidebar"] { background: #101c2c; }
-  [data-testid="stSidebar"] * { color: #f5f7fa !important; }
-  [data-testid="stMetric"] { background: white; border: 1px solid #e4e8ed;
-    border-radius: 12px; padding: 18px 20px; box-shadow: 0 2px 8px rgba(16,28,44,.04); }
-  [data-testid="stMetricLabel"] { color: #667586; }
-  [data-testid="stMetricValue"] { color: #101c2c; }
-  .comparison-card { background: white; border: 1px solid #e4e8ed; border-radius: 12px;
-    padding: 18px 20px; box-shadow: 0 2px 8px rgba(16,28,44,.04); min-height: 142px; }
-  .comparison-label { color: #667586; font-size: .875rem; margin-bottom: .35rem; }
-  .comparison-value { color: #101c2c; font-size: 2rem; line-height: 1.2;
-    letter-spacing: -.02em; white-space: nowrap; }
-  .comparison-delta { font-size: .88rem; font-weight: 600; margin-top: .45rem; }
-  .comparison-delta.favourable { color: #138a72; }
-  .comparison-delta.unfavourable { color: #c14b4b; }
-  .comparison-delta.neutral { color: #667586; }
-  .comparison-baseline { color: #758393; font-size: .78rem; margin-top: .18rem; }
-  .block-container { padding-top: 2rem; max-width: 1500px; }
-  h1, h2, h3 { color: #101c2c; letter-spacing: -.02em; }
-  .eyebrow { color: #16a085; font-weight: 700; font-size: .76rem;
-    letter-spacing: .12em; text-transform: uppercase; margin-bottom: -.5rem; }
-  .muted { color: #758393; font-size: .9rem; }
-  div[data-testid="stDataFrame"] { background: white; border-radius: 12px; }
-</style>
-""", unsafe_allow_html=True)
+alt.themes.register("acuity", altair_theme)
+alt.themes.enable("acuity")
+st.markdown(THEME_CSS, unsafe_allow_html=True)
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -143,6 +120,20 @@ def heading(kicker: str, title: str, description: str) -> None:
     st.write("")
 
 
+def reporting_context(entity: str, snapshot) -> None:
+    baseline = (
+        "Compared with {}".format(format_snapshot_month(snapshot["snapshot_month"]))
+        if snapshot else "No completed snapshot available"
+    )
+    st.markdown(
+        '<div class="reporting-context">'
+        '<div class="reporting-entity">{}</div>'
+        '<div class="reporting-period">Live reporting &nbsp;·&nbsp; {}</div>'
+        '</div>'.format(escape(entity), escape(baseline)),
+        unsafe_allow_html=True,
+    )
+
+
 def points_frame(points) -> pd.DataFrame:
     return pd.DataFrame({"Category": [p.label.strip() for p in points], "GBP": [float(p.value) for p in points]}).set_index("Category")
 
@@ -165,7 +156,9 @@ def donut_chart(points):
     theta = alt.Theta("GBP:Q", stack=True)
     base = alt.Chart(frame).encode(
         theta=theta,
-        color=alt.Color("Category:N", legend=alt.Legend(
+        color=alt.Color("Category:N", scale=alt.Scale(
+            range=[STEEL_GREY, ALERT_ORANGE, "#777777", "#B5B5B0"]
+        ), legend=alt.Legend(
             title=None, orient="bottom", columns=1, labelLimit=260,
             symbolType="circle", symbolSize=90,
         )),
@@ -344,7 +337,7 @@ def historical_trends(entity: str) -> None:
 
 
 def marketreader_view(data: MarketReaderSnapshot, snapshot) -> None:
-    heading("MarketReader", "Billing Overview", "Available MarketReader contract and billing data · USD")
+    heading("Commercial base", "Billing Overview", "Available MarketReader contract and billing data · USD")
     cols = st.columns(3)
     comparison_metric(cols[0], "active_clients", "Active clients", "{:,}".format(data.active_clients), data.active_clients, snapshot)
     comparison_metric(cols[1], "active_contracts", "Active contracts", "{:,}".format(data.active_contracts), data.active_contracts, snapshot)
@@ -358,24 +351,26 @@ def marketreader_view(data: MarketReaderSnapshot, snapshot) -> None:
 
 
 with st.sidebar:
-    st.markdown("## ◈ ACUITY")
-    st.caption("Finance & Commercial Intelligence")
-    st.write("")
-    st.caption("ENTITY")
+    st.markdown('<div class="sidebar-brand">Finance dashboard</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-subtitle">Finance &amp; commercial intelligence</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-section">Entity &amp; reporting</div>', unsafe_allow_html=True)
     entity = st.radio("Entity", ["Acuity", "MarketReader"], label_visibility="collapsed")
-    st.write("")
+    st.caption("Live reporting · comparisons use completed periods")
+    st.markdown('<div class="sidebar-section">Navigation</div>', unsafe_allow_html=True)
     pages = ["Executive Summary", "Revenue & Contracts", "Renewals & Retention", "Sales Performance", "Financial Performance", "Historical Trends"] if entity == "Acuity" else ["Billing Overview", "Historical Trends"]
     page = st.radio("Navigate", pages, label_visibility="collapsed")
-    st.write("")
+    st.markdown('<div class="sidebar-section">Data controls</div>', unsafe_allow_html=True)
     if st.button("↻ Refresh live data", use_container_width=True):
         st.cache_data.clear()
         st.experimental_rerun()
-    if st.button("Save Monthly Snapshot", use_container_width=True):
-        acuity_snapshot = load_finance_data()
-        marketreader_snapshot_data = load_marketreader_data()
-        saved_month = save_monthly_snapshot("Acuity", acuity_snapshot, acuity_snapshot)
-        save_monthly_snapshot("MarketReader", marketreader_snapshot_data, None)
-        st.success("Saved Acuity and MarketReader snapshots for {}.".format(saved_month))
+    with st.expander("Snapshot administration"):
+        st.caption("Use only for an intentional finance-approved capture.")
+        if st.button("Save Monthly Snapshot", use_container_width=True):
+            acuity_snapshot = load_finance_data()
+            marketreader_snapshot_data = load_marketreader_data()
+            saved_month = save_monthly_snapshot("Acuity", acuity_snapshot, acuity_snapshot)
+            save_monthly_snapshot("MarketReader", marketreader_snapshot_data, None)
+            st.success("Saved Acuity and MarketReader snapshots for {}.".format(saved_month))
     st.caption("Sources refresh every 5 minutes")
 
 try:
@@ -389,6 +384,8 @@ try:
 except Exception as exc:
     st.error("Could not load dashboard data: {}".format(exc))
     st.stop()
+
+reporting_context(entity, comparison_snapshot)
 
 if page == "Historical Trends": historical_trends(entity)
 elif entity == "MarketReader": marketreader_view(marketreader_data, comparison_snapshot)
