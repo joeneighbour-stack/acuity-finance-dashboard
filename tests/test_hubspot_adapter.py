@@ -37,10 +37,13 @@ class SearchReader(HubSpotReader):
 
 class HubSpotAdapterTests(unittest.TestCase):
     @staticmethod
-    def pipeline_deal(identifier, pipeline_id=RETAIL_PIPELINE_ID, closed=False, probability="0.5", amount="100"):
+    def pipeline_deal(
+        identifier, pipeline_id=RETAIL_PIPELINE_ID, closed=False,
+        probability="0.5", amount="100", stage_id="85248585",
+    ):
         return Deal(
             id=identifier, name="Deal " + identifier, pipeline_id=pipeline_id,
-            stage_id="stage", stage="Stage", billing_entity="Acuity", tag_ids=(),
+            stage_id=stage_id, stage="Stage", billing_entity="Acuity", tag_ids=(),
             cancellation_received=False, cancellation_date=None, arr=Decimal(amount),
             close_date=None, created_date=None, closed_won=False, closed=closed,
             stage_probability=Decimal(probability),
@@ -163,6 +166,7 @@ class HubSpotAdapterTests(unittest.TestCase):
             self.pipeline_deal("won", closed=True, probability="1"),
             self.pipeline_deal("lost", closed=True, probability="0"),
             self.pipeline_deal("other", pipeline_id="another-pipeline"),
+            self.pipeline_deal("untracked-stage", stage_id="trial"),
         ]
         self.assertEqual([deal.id for deal in _open_retail_deals(deals)], ["open"])
 

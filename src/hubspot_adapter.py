@@ -148,7 +148,9 @@ def _weighted_retail_deals(deals: Sequence[Deal]) -> List[Deal]:
 def _open_retail_deals(deals: Sequence[Deal]) -> List[Deal]:
     return [
         deal for deal in deals
-        if deal.pipeline_id == RETAIL_PIPELINE_ID and not deal.closed
+        if deal.pipeline_id == RETAIL_PIPELINE_ID
+        and deal.stage_id in RETAIL_WEIGHTED_STAGES
+        and not deal.closed
     ]
 
 

@@ -323,7 +323,8 @@ def sales(hubspot: HubSpotSnapshot) -> None:
         st.markdown(
             "All four metrics include Retail Pipeline deals only. Opportunities Created and Closed Won "
             "are elapsed-period metrics. Open Pipeline and Weighted Pipeline are live point-in-time metrics; "
-            "closed deals are excluded and weighting uses current HubSpot stage probabilities."
+            "they include Negotiation, Verbally Agreed, and Contract Out only. Closed deals are excluded "
+            "and weighting uses current HubSpot stage probabilities."
         )
         st.caption(
             "Current: {0:%d %b %Y} to {1:%d %b %Y} · Prior: {2:%d %b %Y} to {3:%d %b %Y}".format(
