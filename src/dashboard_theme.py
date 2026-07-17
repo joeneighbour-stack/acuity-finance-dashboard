@@ -96,6 +96,7 @@ THEME_CSS = """
   [data-testid="stMetricValue"], .comparison-value { color: var(--steel-grey); font-family: var(--ui-font);
     font-variant-numeric: tabular-nums; font-weight: 600; }
   .comparison-card { min-height: 142px; padding: 1.15rem 1.2rem; }
+  .comparison-card-static { display: flex; flex-direction: column; justify-content: flex-start; }
   .comparison-label { margin-bottom: var(--space-1); }
   .comparison-value { font-size: clamp(1.55rem, 2.2vw, 2rem); letter-spacing: -.025em;
     line-height: 1.2; white-space: nowrap; }

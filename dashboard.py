@@ -83,7 +83,13 @@ def comparison_metric(
 ) -> None:
     config = get_kpi_comparison_config(metric_key)
     if config.comparison_frequency != "monthly":
-        container.metric(label, display_value)
+        container.markdown(
+            '<div class="comparison-card comparison-card-static">'
+            '<div class="comparison-label">{}</div>'
+            '<div class="comparison-value">{}</div>'
+            '</div>'.format(escape(label), escape(display_value)),
+            unsafe_allow_html=True,
+        )
         return
 
     previous_value = snapshot.get(config.snapshot_field) if snapshot else None
@@ -298,7 +304,7 @@ def financial(finance: FinanceSnapshot, snapshot) -> None:
     comparison_metric(cols[4], "ebitda", "EBITDA", money(finance.ebitda, True), finance.ebitda, snapshot)
     cols = st.columns(5)
     comparison_metric(cols[0], "ebitda_margin", "EBITDA margin", percent(finance.ebitda_margin), finance.ebitda_margin, snapshot)
-    cols[1].metric("Rule of 40", percent(finance.rule_of_40))
+    comparison_metric(cols[1], "rule_of_40", "Rule of 40", percent(finance.rule_of_40), finance.rule_of_40, snapshot)
     comparison_metric(cols[2], "cash", "Cash", money(finance.cash, True), finance.cash, snapshot)
     comparison_metric(cols[3], "debtor_days", "Debtor days", "{:.1f} days".format(float(finance.debtor_days)), finance.debtor_days, snapshot)
     comparison_metric(cols[4], "creditor_days", "Creditor days", "{:.1f} days".format(float(finance.creditor_days)), finance.creditor_days, snapshot)
