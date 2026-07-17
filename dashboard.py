@@ -5,7 +5,7 @@ All source-specific parsing remains in finance_adapter and hubspot_adapter.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from html import escape
 
@@ -18,7 +18,10 @@ from src.finance_adapter import (
     marketreader_snapshot,
 )
 from src.dashboard_theme import ALERT_ORANGE, STEEL_GREY, THEME_CSS, altair_theme
-from src.hubspot_adapter import HubSpotSnapshot, hubspot_snapshot
+from src.hubspot_adapter import (
+    FINANCIAL_YEAR_START_DAY, FINANCIAL_YEAR_START_MONTH,
+    HubSpotSnapshot, hubspot_snapshot,
+)
 from src.kpi_comparisons import (
     calculate_variance, format_snapshot_month, format_variance,
     get_kpi_comparison_config, get_latest_completed_snapshot,
@@ -119,6 +122,23 @@ def comparison_metric(
     )
 
 
+def same_point_fy_metric(container, label: str, current_value, previous_value) -> None:
+    variance = format_variance(current_value, previous_value, "count")
+    variance_line = (
+        '<div class="comparison-delta neutral">{}</div>'.format(escape(variance))
+        if variance != "No prior-month comparison" else ""
+    )
+    baseline = "vs same point last FY" if variance_line else "Comparison unavailable"
+    container.markdown(
+        '<div class="comparison-card">'
+        '<div class="comparison-label">{}</div>'
+        '<div class="comparison-value">{:,}</div>{}'
+        '<div class="comparison-baseline">{}</div>'
+        '</div>'.format(escape(label), current_value, variance_line, baseline),
+        unsafe_allow_html=True,
+    )
+
+
 def heading(kicker: str, title: str, description: str) -> None:
     st.markdown('<div class="eyebrow">{}</div>'.format(kicker), unsafe_allow_html=True)
     st.title(title)
@@ -186,8 +206,11 @@ def donut_chart(points):
 
 def financial_year_label(today: date | None = None) -> str:
     today = today or date.today()
-    start_year = today.year if today.month >= 2 else today.year - 1
-    return "Feb {}–Jan {}".format(start_year, start_year + 1)
+    boundary = date(today.year, FINANCIAL_YEAR_START_MONTH, FINANCIAL_YEAR_START_DAY)
+    start_year = today.year if today >= boundary else today.year - 1
+    start = date(start_year, FINANCIAL_YEAR_START_MONTH, FINANCIAL_YEAR_START_DAY)
+    end = date(start_year + 1, FINANCIAL_YEAR_START_MONTH, FINANCIAL_YEAR_START_DAY) - timedelta(days=1)
+    return "{:%b %Y}–{:%b %Y}".format(start, end)
 
 
 def executive(finance: FinanceSnapshot, hubspot: HubSpotSnapshot, snapshot) -> None:
@@ -274,10 +297,21 @@ def renewals(finance: FinanceSnapshot, hubspot: HubSpotSnapshot, snapshot) -> No
 def sales(hubspot: HubSpotSnapshot) -> None:
     heading("Growth engine", "Sales Performance", "Retail Pipeline performance from HubSpot · {} financial year".format(financial_year_label()))
     cols = st.columns(4)
-    cols[0].metric("Opportunities created this FY", "{:,}".format(hubspot.opportunities_created))
-    cols[1].metric("Closed won this FY", "{:,}".format(hubspot.closed_won))
+    same_point_fy_metric(cols[0], "Opportunities created this FY", hubspot.opportunities_created, hubspot.opportunities_created_prior)
+    same_point_fy_metric(cols[1], "Closed won this FY", hubspot.closed_won, hubspot.closed_won_prior)
     cols[2].metric("Open pipeline value", money(hubspot.pipeline_value, True))
     cols[3].metric("Weighted pipeline", money(hubspot.weighted_pipeline, True))
+    period = hubspot.sales_comparison_period
+    with st.expander("Metric methodology"):
+        st.markdown(
+            "Opportunities Created and Closed Won include Retail Pipeline deals only. "
+            "Year-on-year comparisons use the equivalent elapsed period in the previous financial year."
+        )
+        st.caption(
+            "Current: {0:%d %b %Y} to {1:%d %b %Y} · Prior: {2:%d %b %Y} to {3:%d %b %Y}".format(
+                period.current_start, period.current_end, period.prior_start, period.prior_end
+            )
+        )
     st.write("")
     st.subheader("Pipeline by stage")
     stage_rows = [{

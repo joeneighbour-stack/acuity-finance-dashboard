@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -16,6 +17,9 @@ from urllib.request import Request, urlopen
 
 class HubSpotDataError(RuntimeError):
     pass
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -68,9 +72,28 @@ class CancellationRisk:
 
 
 @dataclass(frozen=True)
+class ComparisonPeriod:
+    current_start: date
+    current_end_exclusive: date
+    prior_start: date
+    prior_end_exclusive: date
+
+    @property
+    def current_end(self) -> date:
+        return self.current_end_exclusive - timedelta(days=1)
+
+    @property
+    def prior_end(self) -> date:
+        return self.prior_end_exclusive - timedelta(days=1)
+
+
+@dataclass(frozen=True)
 class HubSpotSnapshot:
     opportunities_created: int
+    opportunities_created_prior: int
     closed_won: int
+    closed_won_prior: int
+    sales_comparison_period: ComparisonPeriod
     pipeline_value: Decimal
     weighted_pipeline: Decimal
     pipeline_stages: Tuple[PipelineStagePoint, ...]
@@ -79,6 +102,9 @@ class HubSpotSnapshot:
     cancellation_risks: Tuple[CancellationRisk, ...]
 
 
+FINANCIAL_YEAR_START_MONTH = 2
+FINANCIAL_YEAR_START_DAY = 1
+RETAIL_PIPELINE_LABEL = "Retail Pipeline"
 RETAIL_PIPELINE_ID = "40364427"
 RETAIL_WEIGHTED_STAGES = {
     "85248585": ("Negotiation", Decimal("0.50")),
@@ -153,8 +179,30 @@ def _date(value: object) -> Optional[date]:
 
 def _financial_year_bounds(today: date) -> Tuple[date, date]:
     """Return the inclusive start and exclusive end of the Feb–Jan FY."""
-    start_year = today.year if today.month >= 2 else today.year - 1
-    return date(start_year, 2, 1), date(start_year + 1, 2, 1)
+    boundary = date(today.year, FINANCIAL_YEAR_START_MONTH, FINANCIAL_YEAR_START_DAY)
+    start_year = today.year if today >= boundary else today.year - 1
+    return (
+        date(start_year, FINANCIAL_YEAR_START_MONTH, FINANCIAL_YEAR_START_DAY),
+        date(start_year + 1, FINANCIAL_YEAR_START_MONTH, FINANCIAL_YEAR_START_DAY),
+    )
+
+
+def _same_point_prior_fy_period(cutoff: date) -> ComparisonPeriod:
+    """Return matching elapsed-day FY periods using end-exclusive boundaries."""
+    current_start, _ = _financial_year_bounds(cutoff)
+    elapsed_days = (cutoff - current_start).days
+    prior_start, _ = _financial_year_bounds(current_start - timedelta(days=1))
+    return ComparisonPeriod(
+        current_start=current_start,
+        current_end_exclusive=cutoff + timedelta(days=1),
+        prior_start=prior_start,
+        prior_end_exclusive=prior_start + timedelta(days=elapsed_days + 1),
+    )
+
+
+def _utc_milliseconds(value: date) -> int:
+    midnight = datetime.combine(value, time.min).replace(tzinfo=timezone.utc)
+    return int(midnight.timestamp() * 1000)
 
 
 class HubSpotReader:
@@ -194,6 +242,30 @@ class HubSpotReader:
         except URLError as exc:
             raise HubSpotDataError("Could not connect to HubSpot: {0}".format(exc.reason))
 
+    def _post(self, path: str, payload: Mapping[str, object]) -> dict:
+        request = Request(
+            self.base_url + path,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": "Bearer " + self.access_token,
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            try:
+                message = json.loads(body).get("message", body)
+            except ValueError:
+                message = body
+            raise HubSpotDataError("HubSpot API error {0}: {1}".format(exc.code, message))
+        except URLError as exc:
+            raise HubSpotDataError("Could not connect to HubSpot: {0}".format(exc.reason))
+
     def pipelines(self) -> Mapping[str, dict]:
         if self._pipelines is None:
             data = self._get("/crm/v3/pipelines/deals")
@@ -207,6 +279,77 @@ class HubSpotReader:
             available = ", ".join(sorted(item.get("label", pid) for pid, item in self.pipelines().items()))
             raise HubSpotDataError("Pipeline {0!r} not found. Available: {1}".format(label, available))
         return matches[0]
+
+    def retail_pipeline_id(self) -> str:
+        configured = self.pipelines().get(RETAIL_PIPELINE_ID)
+        if configured is not None:
+            if configured.get("label", "").casefold().strip() != RETAIL_PIPELINE_LABEL.casefold():
+                raise HubSpotDataError(
+                    "Configured Retail Pipeline ID {0} resolves to {1!r}".format(
+                        RETAIL_PIPELINE_ID, configured.get("label", "")
+                    )
+                )
+            return RETAIL_PIPELINE_ID
+        resolved = self._pipeline_id(RETAIL_PIPELINE_LABEL)
+        if not resolved:
+            raise HubSpotDataError("Retail Pipeline could not be resolved")
+        return resolved
+
+    def retail_closed_won_stage_ids(self, pipeline_id: str) -> Tuple[str, ...]:
+        pipeline = self.pipelines().get(pipeline_id)
+        if pipeline is None:
+            raise HubSpotDataError("Retail Pipeline {0} is unavailable".format(pipeline_id))
+        stage_ids = []
+        for stage in pipeline.get("stages", []):
+            metadata = stage.get("metadata", {})
+            try:
+                probability = Decimal(str(metadata.get("probability", "")))
+            except InvalidOperation:
+                probability = Decimal("-1")
+            if str(metadata.get("isClosed", "")).casefold() == "true" and probability == Decimal("1"):
+                stage_ids.append(stage["id"])
+        if not stage_ids:
+            raise HubSpotDataError("Retail Pipeline has no closed-won stage in HubSpot metadata")
+        return tuple(stage_ids)
+
+    def count_retail_deals(
+        self, date_property: str, start: date, end_exclusive: date,
+        *, closed_won_stage_ids: Sequence[str] = (),
+    ) -> int:
+        pipeline_id = self.retail_pipeline_id()
+        filters = [
+            {"propertyName": "pipeline", "operator": "EQ", "value": pipeline_id},
+            {"propertyName": date_property, "operator": "GTE", "value": str(_utc_milliseconds(start))},
+            {"propertyName": date_property, "operator": "LT", "value": str(_utc_milliseconds(end_exclusive))},
+        ]
+        if closed_won_stage_ids:
+            filters.append({
+                "propertyName": "dealstage", "operator": "IN",
+                "values": list(closed_won_stage_ids),
+            })
+        count = 0
+        after = None
+        while True:
+            payload = {
+                "filterGroups": [{"filters": filters}],
+                "limit": 100,
+                "properties": ["pipeline", date_property, "dealstage"],
+            }
+            if after is not None:
+                payload["after"] = after
+            page = self._post("/crm/v3/objects/deals/search", payload)
+            results = page.get("results")
+            if results is None:
+                raise HubSpotDataError("HubSpot deal search returned no results collection")
+            count += len(results)
+            after = page.get("paging", {}).get("next", {}).get("after")
+            if after is None:
+                break
+        logger.info(
+            "HubSpot Retail Pipeline count pipeline_id=%s property=%s start=%s end_exclusive=%s count=%s",
+            pipeline_id, date_property, start.isoformat(), end_exclusive.isoformat(), count,
+        )
+        return count
 
     def deals(self) -> Tuple[Deal, ...]:
         if self._deals is not None:
@@ -257,10 +400,23 @@ class HubSpotReader:
 
     def snapshot(self, today: Optional[date] = None) -> HubSpotSnapshot:
         today = today or date.today()
-        financial_year_start, financial_year_end = _financial_year_bounds(today)
-        retail_id = RETAIL_PIPELINE_ID
-        if retail_id not in self.pipelines():
-            raise HubSpotDataError("Retail Pipeline (40364427) is unavailable")
+        comparison_period = _same_point_prior_fy_period(today)
+        retail_id = self.retail_pipeline_id()
+        closed_won_stage_ids = self.retail_closed_won_stage_ids(retail_id)
+        opportunities_created = self.count_retail_deals(
+            "createdate", comparison_period.current_start, comparison_period.current_end_exclusive
+        )
+        opportunities_created_prior = self.count_retail_deals(
+            "createdate", comparison_period.prior_start, comparison_period.prior_end_exclusive
+        )
+        closed_won = self.count_retail_deals(
+            "closedate", comparison_period.current_start, comparison_period.current_end_exclusive,
+            closed_won_stage_ids=closed_won_stage_ids,
+        )
+        closed_won_prior = self.count_retail_deals(
+            "closedate", comparison_period.prior_start, comparison_period.prior_end_exclusive,
+            closed_won_stage_ids=closed_won_stage_ids,
+        )
         renewal_id = ACUITY_RENEWAL_PIPELINE_ID
         renewal_pipeline = self.pipelines().get(renewal_id)
         if not renewal_pipeline or renewal_pipeline.get("label") != "Renewal Pipeline":
@@ -301,15 +457,11 @@ class HubSpotReader:
             if deal.cancellation_received or CANCELLATION_RECEIVED_TAG_ID in deal.tag_ids
         )
         return HubSpotSnapshot(
-            opportunities_created=sum(
-                1 for deal in retail
-                if deal.created_date and financial_year_start <= deal.created_date < financial_year_end
-            ),
-            closed_won=sum(
-                1 for deal in retail
-                if deal.closed_won and deal.close_date
-                and financial_year_start <= deal.close_date < financial_year_end
-            ),
+            opportunities_created=opportunities_created,
+            opportunities_created_prior=opportunities_created_prior,
+            closed_won=closed_won,
+            closed_won_prior=closed_won_prior,
+            sales_comparison_period=comparison_period,
             pipeline_value=sum((deal.arr for deal in open_retail), Decimal(0)),
             weighted_pipeline=weighted,
             pipeline_stages=tuple(pipeline_stages),
