@@ -30,6 +30,7 @@ class SnapshotTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.original_path = snapshots.DATABASE_PATH
         self.original_url = os.environ.pop("DATABASE_URL", None)
+        self.original_railway_environment = os.environ.pop("RAILWAY_ENVIRONMENT", None)
         snapshots.DATABASE_PATH = Path(self.temp.name) / "dashboard.db"
         snapshots.reset_engine_for_tests()
         snapshots.initialize_database()
@@ -37,8 +38,11 @@ class SnapshotTests(unittest.TestCase):
     def tearDown(self):
         snapshots.reset_engine_for_tests()
         snapshots.DATABASE_PATH = self.original_path
+        os.environ.pop("RAILWAY_ENVIRONMENT", None)
         if self.original_url is not None:
             os.environ["DATABASE_URL"] = self.original_url
+        if self.original_railway_environment is not None:
+            os.environ["RAILWAY_ENVIRONMENT"] = self.original_railway_environment
         self.temp.cleanup()
 
     def test_postgresql_payload_generation(self):
@@ -77,6 +81,11 @@ class SnapshotTests(unittest.TestCase):
     def test_previous_month_naming(self):
         self.assertEqual(previous_month(date(2026, 1, 10)), "2025-12")
         self.assertEqual(previous_month(date(2026, 7, 16)), "2026-06")
+
+    def test_railway_requires_database_url(self):
+        os.environ["RAILWAY_ENVIRONMENT"] = "production"
+        with self.assertRaisesRegex(RuntimeError, "DATABASE_URL"):
+            snapshots._database_url()
 
 
 if __name__ == "__main__":

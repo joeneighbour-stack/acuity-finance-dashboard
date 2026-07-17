@@ -43,6 +43,8 @@ _engine_key: Optional[str] = None
 
 def _database_url() -> str:
     value = os.environ.get("DATABASE_URL", "").strip()
+    if not value and os.environ.get("RAILWAY_ENVIRONMENT"):
+        raise RuntimeError("DATABASE_URL must be configured when running on Railway")
     if value.startswith("postgres://"):
         value = "postgresql+psycopg://" + value[len("postgres://"):]
     elif value.startswith("postgresql://"):
@@ -122,7 +124,6 @@ def save_monthly_snapshot(entity: str, finance_kpis: Any, syft_kpis: Any = None,
 
 
 def get_monthly_snapshots(entity: Optional[str] = None) -> List[Dict[str, Any]]:
-    initialize_database()
     statement = select(monthly_snapshots)
     if entity is not None:
         statement = statement.where(monthly_snapshots.c.entity == entity)

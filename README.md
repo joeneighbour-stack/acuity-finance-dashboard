@@ -47,3 +47,5 @@ Schedule the snapshot service monthly, after the month has ended. It records the
 ## Snapshot behaviour
 
 Snapshots are stored as separate `Acuity` and `MarketReader` rows. PostgreSQL uses an atomic `ON CONFLICT (snapshot_month, entity) DO UPDATE` operation. Historical Trends calls the same data-access module and therefore reads PostgreSQL whenever `DATABASE_URL` is set.
+
+Executive KPI cards compare live Google Sheets values with the selected entity's latest completed monthly snapshot. Snapshot capture remains a separate scheduled process; viewing or refreshing the dashboard does not capture a snapshot.
