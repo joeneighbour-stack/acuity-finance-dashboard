@@ -45,7 +45,7 @@ KPI_COMPARISONS = {
     "renewals_next_90_days": KPIComparisonConfig("none"),
     "customer_lifetime_value": KPIComparisonConfig("none"),
     "new_contracts": KPIComparisonConfig("none"),
-    "rule_of_40": KPIComparisonConfig("none"),
+    "rule_of_40": KPIComparisonConfig("monthly", "rule_of_40", "percentage", "higher"),
 }
 
 

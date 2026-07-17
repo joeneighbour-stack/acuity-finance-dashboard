@@ -233,8 +233,8 @@ def executive(finance: FinanceSnapshot, hubspot: HubSpotSnapshot, snapshot) -> N
     cols = st.columns(4)
     comparison_metric(cols[0], "nrr_quarterly", "NRR (Quarterly)", percent(finance.nrr_quarterly), finance.nrr_quarterly, snapshot)
     comparison_metric(cols[1], "grr_quarterly", "GRR (Quarterly)", percent(finance.grr_quarterly), finance.grr_quarterly, snapshot)
-    cols[2].metric("Weighted pipeline", money(hubspot.weighted_pipeline, True))
-    cols[3].metric("Renewals in next 90 days", len(hubspot.upcoming_renewals))
+    comparison_metric(cols[2], "weighted_pipeline", "Weighted pipeline", money(hubspot.weighted_pipeline, True), hubspot.weighted_pipeline, snapshot)
+    comparison_metric(cols[3], "renewals_next_90_days", "Renewals in next 90 days", "{:,}".format(len(hubspot.upcoming_renewals)), len(hubspot.upcoming_renewals), snapshot)
     st.caption("Updated quarterly from the Finance Google Sheet.")
 
 

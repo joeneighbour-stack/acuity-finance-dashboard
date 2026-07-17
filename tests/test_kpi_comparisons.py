@@ -87,6 +87,10 @@ class KPIComparisonTests(unittest.TestCase):
         revenue = get_kpi_comparison_config("revenue")
         self.assertEqual(future_mrr.snapshot_field, "future_mrr")
         self.assertEqual(revenue.snapshot_field, "total_income")
+        rule_of_40 = get_kpi_comparison_config("rule_of_40")
+        self.assertEqual(rule_of_40.comparison_frequency, "monthly")
+        self.assertEqual(rule_of_40.snapshot_field, "rule_of_40")
+        self.assertEqual(rule_of_40.metric_type, "percentage")
 
 
 if __name__ == "__main__":
