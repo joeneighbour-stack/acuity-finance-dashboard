@@ -7,6 +7,7 @@ from src.kpi_comparisons import (
     calculate_variance,
     format_snapshot_month,
     format_variance,
+    get_kpi_comparison_config,
     get_latest_completed_snapshot,
 )
 
@@ -73,6 +74,18 @@ class KPIComparisonTests(unittest.TestCase):
 
     def test_snapshot_month_format(self):
         self.assertEqual(format_snapshot_month("2026-06"), "Jun 2026")
+
+    def test_comparison_frequency_metadata(self):
+        self.assertEqual(get_kpi_comparison_config("current_mrr").comparison_frequency, "monthly")
+        self.assertEqual(get_kpi_comparison_config("nrr_quarterly").comparison_frequency, "quarterly")
+        self.assertEqual(get_kpi_comparison_config("weighted_pipeline").comparison_frequency, "none")
+        self.assertEqual(get_kpi_comparison_config("unregistered_operational_kpi").comparison_frequency, "none")
+
+    def test_monthly_metadata_contains_snapshot_mapping(self):
+        future_mrr = get_kpi_comparison_config("future_contracted_mrr")
+        revenue = get_kpi_comparison_config("revenue")
+        self.assertEqual(future_mrr.snapshot_field, "future_mrr")
+        self.assertEqual(revenue.snapshot_field, "total_income")
 
 
 if __name__ == "__main__":

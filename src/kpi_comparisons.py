@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, NamedTuple, Optional
 
@@ -12,6 +13,45 @@ from src.snapshots import get_monthly_snapshots
 class Variance(NamedTuple):
     absolute_change: Optional[Decimal]
     percentage_change: Optional[Decimal]
+
+
+@dataclass(frozen=True)
+class KPIComparisonConfig:
+    comparison_frequency: str
+    snapshot_field: Optional[str] = None
+    metric_type: Optional[str] = None
+    direction: str = "neutral"
+
+
+KPI_COMPARISONS = {
+    "current_mrr": KPIComparisonConfig("monthly", "current_mrr", "currency", "higher"),
+    "current_arr": KPIComparisonConfig("monthly", "current_arr", "currency", "higher"),
+    "active_clients": KPIComparisonConfig("monthly", "active_clients", "count", "higher"),
+    "active_contracts": KPIComparisonConfig("monthly", "active_contracts", "count", "higher"),
+    "future_contracted_mrr": KPIComparisonConfig("monthly", "future_mrr", "currency", "higher"),
+    "average_client_mrr": KPIComparisonConfig("monthly", "average_client_mrr", "currency", "higher"),
+    "revenue": KPIComparisonConfig("monthly", "total_income", "currency", "higher"),
+    "gross_profit": KPIComparisonConfig("monthly", "gross_profit", "currency", "higher"),
+    "gross_margin": KPIComparisonConfig("monthly", "gross_margin", "percentage", "higher"),
+    "net_profit": KPIComparisonConfig("monthly", "net_profit", "currency", "higher"),
+    "ebitda": KPIComparisonConfig("monthly", "ebitda", "currency", "higher"),
+    "ebitda_margin": KPIComparisonConfig("monthly", "ebitda_margin", "percentage", "higher"),
+    "cash": KPIComparisonConfig("monthly", "cash", "currency", "higher"),
+    "debtor_days": KPIComparisonConfig("monthly", "debtor_days", "days", "lower"),
+    "creditor_days": KPIComparisonConfig("monthly", "creditor_days", "days", "lower"),
+    "nrr_quarterly": KPIComparisonConfig("quarterly"),
+    "grr_quarterly": KPIComparisonConfig("quarterly"),
+    "weighted_pipeline": KPIComparisonConfig("none"),
+    "renewals_next_90_days": KPIComparisonConfig("none"),
+    "customer_lifetime_value": KPIComparisonConfig("none"),
+    "new_contracts": KPIComparisonConfig("none"),
+    "rule_of_40": KPIComparisonConfig("none"),
+}
+
+
+def get_kpi_comparison_config(metric_key: str) -> KPIComparisonConfig:
+    """Return declared comparison behaviour; undeclared operational KPIs are off."""
+    return KPI_COMPARISONS.get(metric_key, KPIComparisonConfig("none"))
 
 
 def _decimal(value: Any) -> Optional[Decimal]:

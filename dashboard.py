@@ -18,7 +18,10 @@ from src.finance_adapter import (
     marketreader_snapshot,
 )
 from src.hubspot_adapter import HubSpotSnapshot, hubspot_snapshot
-from src.kpi_comparisons import calculate_variance, format_snapshot_month, format_variance, get_latest_completed_snapshot
+from src.kpi_comparisons import (
+    calculate_variance, format_snapshot_month, format_variance,
+    get_kpi_comparison_config, get_latest_completed_snapshot,
+)
 from src.snapshots import get_monthly_snapshots, initialize_database, save_monthly_snapshot
 
 
@@ -98,10 +101,16 @@ def percent(value: Decimal | None) -> str:
 
 
 def comparison_metric(
-    container, label: str, display_value: str, current_value, snapshot,
-    snapshot_field: str, metric_type: str, direction: str = "higher",
+    container, metric_key: str, label: str, display_value: str, current_value, snapshot,
+    *, currency: str = "gbp",
 ) -> None:
-    previous_value = snapshot.get(snapshot_field) if snapshot else None
+    config = get_kpi_comparison_config(metric_key)
+    if config.comparison_frequency != "monthly":
+        container.metric(label, display_value)
+        return
+
+    previous_value = snapshot.get(config.snapshot_field) if snapshot else None
+    metric_type = "dollars" if config.metric_type == "currency" and currency == "usd" else config.metric_type
     variance = format_variance(current_value, previous_value, metric_type)
     if variance == "No prior-month comparison":
         style = "neutral"
@@ -109,9 +118,9 @@ def comparison_metric(
         variance_line = ""
     else:
         change = calculate_variance(current_value, previous_value).absolute_change
-        if change == 0 or direction == "neutral":
+        if change == 0 or config.direction == "neutral":
             style = "neutral"
-        elif (change > 0) == (direction == "higher"):
+        elif (change > 0) == (config.direction == "higher"):
             style = "favourable"
         else:
             style = "unfavourable"
@@ -185,11 +194,11 @@ def financial_year_label(today: date | None = None) -> str:
 def executive(finance: FinanceSnapshot, hubspot: HubSpotSnapshot, snapshot) -> None:
     heading("Company overview", "Executive Summary", "Live commercial position across finance and HubSpot")
     cols = st.columns(5)
-    comparison_metric(cols[0], "Active clients", "{:,}".format(finance.active_clients), finance.active_clients, snapshot, "active_clients", "count")
-    comparison_metric(cols[1], "Active contracts", "{:,}".format(finance.active_contracts), finance.active_contracts, snapshot, "active_contracts", "count")
-    comparison_metric(cols[2], "Current MRR", money(finance.current_mrr, True), finance.current_mrr, snapshot, "current_mrr", "currency")
-    comparison_metric(cols[3], "Current ARR", money(finance.current_arr, True), finance.current_arr, snapshot, "current_arr", "currency")
-    comparison_metric(cols[4], "Future contracted MRR", money(finance.future_contracted_mrr, True), finance.future_contracted_mrr, snapshot, "future_mrr", "currency")
+    comparison_metric(cols[0], "active_clients", "Active clients", "{:,}".format(finance.active_clients), finance.active_clients, snapshot)
+    comparison_metric(cols[1], "active_contracts", "Active contracts", "{:,}".format(finance.active_contracts), finance.active_contracts, snapshot)
+    comparison_metric(cols[2], "current_mrr", "Current MRR", money(finance.current_mrr, True), finance.current_mrr, snapshot)
+    comparison_metric(cols[3], "current_arr", "Current ARR", money(finance.current_arr, True), finance.current_arr, snapshot)
+    comparison_metric(cols[4], "future_contracted_mrr", "Future contracted MRR", money(finance.future_contracted_mrr, True), finance.future_contracted_mrr, snapshot)
     st.write("")
     left, right = st.columns((3, 2))
     with left:
@@ -199,8 +208,8 @@ def executive(finance: FinanceSnapshot, hubspot: HubSpotSnapshot, snapshot) -> N
         st.subheader("Billing by currency")
         st.altair_chart(donut_chart(finance.billing_by_currency), use_container_width=True)
     cols = st.columns(4)
-    cols[0].metric("NRR (Quarterly)", percent(finance.nrr_quarterly))
-    cols[1].metric("GRR (Quarterly)", percent(finance.grr_quarterly))
+    comparison_metric(cols[0], "nrr_quarterly", "NRR (Quarterly)", percent(finance.nrr_quarterly), finance.nrr_quarterly, snapshot)
+    comparison_metric(cols[1], "grr_quarterly", "GRR (Quarterly)", percent(finance.grr_quarterly), finance.grr_quarterly, snapshot)
     cols[2].metric("Weighted pipeline", money(hubspot.weighted_pipeline, True))
     cols[3].metric("Renewals in next 90 days", len(hubspot.upcoming_renewals))
     st.caption("Updated quarterly from the Finance Google Sheet.")
@@ -209,7 +218,7 @@ def executive(finance: FinanceSnapshot, hubspot: HubSpotSnapshot, snapshot) -> N
 def revenue_contracts(finance: FinanceSnapshot, snapshot) -> None:
     heading("Commercial base", "Revenue & Contracts", "Contract economics and recurring revenue composition")
     cols = st.columns(3)
-    comparison_metric(cols[0], "Average client MRR", money(finance.average_client_mrr), finance.average_client_mrr, snapshot, "average_client_mrr", "currency")
+    comparison_metric(cols[0], "average_client_mrr", "Average client MRR", money(finance.average_client_mrr), finance.average_client_mrr, snapshot)
     cols[1].metric("Customer lifetime value", money(finance.clv, True))
     cols[2].metric("New contracts this FY", "{:,}".format(finance.new_contracts))
     cols[2].caption(financial_year_label())
@@ -222,11 +231,11 @@ def revenue_contracts(finance: FinanceSnapshot, snapshot) -> None:
     st.info("Entity and currency revenue breakdowns are available on the Executive Summary.")
 
 
-def renewals(finance: FinanceSnapshot, hubspot: HubSpotSnapshot) -> None:
+def renewals(finance: FinanceSnapshot, hubspot: HubSpotSnapshot, snapshot) -> None:
     heading("Customer durability", "Renewals & Retention", "Churn history and upcoming renewal workload")
     retention_cols = st.columns(2)
-    retention_cols[0].metric("NRR (Quarterly)", percent(finance.nrr_quarterly))
-    retention_cols[1].metric("GRR (Quarterly)", percent(finance.grr_quarterly))
+    comparison_metric(retention_cols[0], "nrr_quarterly", "NRR (Quarterly)", percent(finance.nrr_quarterly), finance.nrr_quarterly, snapshot)
+    comparison_metric(retention_cols[1], "grr_quarterly", "GRR (Quarterly)", percent(finance.grr_quarterly), finance.grr_quarterly, snapshot)
     st.caption("Updated quarterly from the Finance Google Sheet.")
     st.write("")
     cols = st.columns(4)
@@ -289,17 +298,17 @@ def sales(hubspot: HubSpotSnapshot) -> None:
 def financial(finance: FinanceSnapshot, snapshot) -> None:
     heading("Management accounts", "Financial Performance", "Latest period from the Syft MI Dashboard feed")
     cols = st.columns(5)
-    comparison_metric(cols[0], "Revenue", money(finance.revenue, True), finance.revenue, snapshot, "total_income", "currency")
-    comparison_metric(cols[1], "Gross profit", money(finance.gross_profit, True), finance.gross_profit, snapshot, "gross_profit", "currency")
-    comparison_metric(cols[2], "Gross margin", percent(finance.gross_margin), finance.gross_margin, snapshot, "gross_margin", "percentage")
-    comparison_metric(cols[3], "Net profit", money(finance.net_profit, True), finance.net_profit, snapshot, "net_profit", "currency")
-    comparison_metric(cols[4], "EBITDA", money(finance.ebitda, True), finance.ebitda, snapshot, "ebitda", "currency")
+    comparison_metric(cols[0], "revenue", "Revenue", money(finance.revenue, True), finance.revenue, snapshot)
+    comparison_metric(cols[1], "gross_profit", "Gross profit", money(finance.gross_profit, True), finance.gross_profit, snapshot)
+    comparison_metric(cols[2], "gross_margin", "Gross margin", percent(finance.gross_margin), finance.gross_margin, snapshot)
+    comparison_metric(cols[3], "net_profit", "Net profit", money(finance.net_profit, True), finance.net_profit, snapshot)
+    comparison_metric(cols[4], "ebitda", "EBITDA", money(finance.ebitda, True), finance.ebitda, snapshot)
     cols = st.columns(5)
-    comparison_metric(cols[0], "EBITDA margin", percent(finance.ebitda_margin), finance.ebitda_margin, snapshot, "ebitda_margin", "percentage")
+    comparison_metric(cols[0], "ebitda_margin", "EBITDA margin", percent(finance.ebitda_margin), finance.ebitda_margin, snapshot)
     cols[1].metric("Rule of 40", percent(finance.rule_of_40))
-    comparison_metric(cols[2], "Cash", money(finance.cash, True), finance.cash, snapshot, "cash", "currency")
-    comparison_metric(cols[3], "Debtor days", "{:.1f} days".format(float(finance.debtor_days)), finance.debtor_days, snapshot, "debtor_days", "days", "lower")
-    comparison_metric(cols[4], "Creditor days", "{:.1f} days".format(float(finance.creditor_days)), finance.creditor_days, snapshot, "creditor_days", "days", "lower")
+    comparison_metric(cols[2], "cash", "Cash", money(finance.cash, True), finance.cash, snapshot)
+    comparison_metric(cols[3], "debtor_days", "Debtor days", "{:.1f} days".format(float(finance.debtor_days)), finance.debtor_days, snapshot)
+    comparison_metric(cols[4], "creditor_days", "Creditor days", "{:.1f} days".format(float(finance.creditor_days)), finance.creditor_days, snapshot)
     st.write("")
     st.subheader("Profit bridge")
     frame = pd.DataFrame({"Metric": ["Revenue", "Gross profit", "Net profit", "EBITDA"], "GBP": [float(finance.revenue), float(finance.gross_profit), float(finance.net_profit), float(finance.ebitda)]}).set_index("Metric")
@@ -337,13 +346,13 @@ def historical_trends(entity: str) -> None:
 def marketreader_view(data: MarketReaderSnapshot, snapshot) -> None:
     heading("MarketReader", "Billing Overview", "Available MarketReader contract and billing data · USD")
     cols = st.columns(3)
-    comparison_metric(cols[0], "Active clients", "{:,}".format(data.active_clients), data.active_clients, snapshot, "active_clients", "count")
-    comparison_metric(cols[1], "Active contracts", "{:,}".format(data.active_contracts), data.active_contracts, snapshot, "active_contracts", "count")
-    comparison_metric(cols[2], "Average client MRR", dollars(data.average_client_mrr), data.average_client_mrr, snapshot, "average_client_mrr", "dollars")
+    comparison_metric(cols[0], "active_clients", "Active clients", "{:,}".format(data.active_clients), data.active_clients, snapshot)
+    comparison_metric(cols[1], "active_contracts", "Active contracts", "{:,}".format(data.active_contracts), data.active_contracts, snapshot)
+    comparison_metric(cols[2], "average_client_mrr", "Average client MRR", dollars(data.average_client_mrr), data.average_client_mrr, snapshot, currency="usd")
     cols = st.columns(3)
-    comparison_metric(cols[0], "Current MRR", dollars(data.current_mrr, True), data.current_mrr, snapshot, "current_mrr", "dollars")
-    comparison_metric(cols[1], "Current ARR", dollars(data.current_arr, True), data.current_arr, snapshot, "current_arr", "dollars")
-    comparison_metric(cols[2], "Future contracted MRR", dollars(data.future_contracted_mrr, True), data.future_contracted_mrr, snapshot, "future_mrr", "dollars")
+    comparison_metric(cols[0], "current_mrr", "Current MRR", dollars(data.current_mrr, True), data.current_mrr, snapshot, currency="usd")
+    comparison_metric(cols[1], "current_arr", "Current ARR", dollars(data.current_arr, True), data.current_arr, snapshot, currency="usd")
+    comparison_metric(cols[2], "future_contracted_mrr", "Future contracted MRR", dollars(data.future_contracted_mrr, True), data.future_contracted_mrr, snapshot, currency="usd")
     st.write("")
     st.info("MarketReader currently has billing and contract totals only. Acuity finance, churn, Syft and HubSpot metrics are intentionally not shown in this entity view.")
 
@@ -385,7 +394,7 @@ if page == "Historical Trends": historical_trends(entity)
 elif entity == "MarketReader": marketreader_view(marketreader_data, comparison_snapshot)
 elif page == "Executive Summary": executive(finance_data, hubspot_data, comparison_snapshot)
 elif page == "Revenue & Contracts": revenue_contracts(finance_data, comparison_snapshot)
-elif page == "Renewals & Retention": renewals(finance_data, hubspot_data)
+elif page == "Renewals & Retention": renewals(finance_data, hubspot_data, comparison_snapshot)
 elif page == "Sales Performance": sales(hubspot_data)
 else: financial(finance_data, comparison_snapshot)
 
