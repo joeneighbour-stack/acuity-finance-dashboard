@@ -112,6 +112,16 @@ class ChartPoint:
 
 
 @dataclass(frozen=True)
+class CurrencyFundingPosition:
+    currency: str
+    monthly_billing: Decimal | None
+    billing_gbp_equivalent: Decimal | None
+    percentage_of_total: Decimal | None
+    monthly_requirements: Decimal | None
+    net_position: Decimal | None
+
+
+@dataclass(frozen=True)
 class FinanceSnapshot:
     active_clients: int
     active_contracts: int
@@ -123,6 +133,7 @@ class FinanceSnapshot:
     grr_quarterly: Decimal | None
     billing_by_entity: tuple[ChartPoint, ...]
     billing_by_currency: tuple[ChartPoint, ...]
+    currency_position: tuple[CurrencyFundingPosition, ...]
     average_client_mrr: Decimal
     average_contract_length: Decimal
     average_contract_length_all_time: Decimal
@@ -335,6 +346,51 @@ def _chart(reader: SheetReader, name: str) -> tuple[ChartPoint, ...]:
     return tuple(points)
 
 
+def _decimal_or_none(value: Cell) -> Decimal | None:
+    try:
+        return _decimal(value)
+    except ValueParseError:
+        return None
+
+
+def currency_position(reader: SheetReader) -> tuple[CurrencyFundingPosition, ...]:
+    """Read live native-currency billing, requirements and funding position."""
+    blocks = _section_ranges(reader, "Billing split per currency")
+    if not blocks:
+        raise LabelNotFoundError("Could not find chart section 'Billing split per currency'")
+
+    rows: list[CurrencyFundingPosition] = []
+    wanted = {"GBP", "USD", "EUR"}
+    for _, block_rows in blocks:
+        section_seen = False
+        for _, row in block_rows:
+            normalised = [_normalise(c) for c in row]
+            if _normalise("Billing split per currency") in normalised:
+                section_seen = True
+                continue
+            if not section_seen or not row:
+                continue
+
+            currency = str(row[0] or "").strip().upper()
+            if currency not in wanted:
+                continue
+
+            rows.append(CurrencyFundingPosition(
+                currency=currency,
+                monthly_billing=_decimal_or_none(row[1] if len(row) > 1 else None),
+                billing_gbp_equivalent=_decimal_or_none(row[2] if len(row) > 2 else None),
+                percentage_of_total=_decimal_or_none(row[3] if len(row) > 3 else None),
+                monthly_requirements=_decimal_or_none(row[5] if len(row) > 5 else None),
+                net_position=_decimal_or_none(row[6] if len(row) > 6 else None),
+            ))
+
+    if not rows:
+        raise ValueParseError("No currency funding rows found for 'Billing split per currency'")
+
+    order = {currency: index for index, currency in enumerate(("GBP", "USD", "EUR"))}
+    return tuple(sorted(rows, key=lambda item: order.get(item.currency, len(order))))
+
+
 def active_clients(reader: SheetReader) -> int: return _count(reader, "active_clients")
 def active_contracts(reader: SheetReader) -> int: return _count(reader, "active_contracts")
 def current_mrr(reader: SheetReader) -> Decimal: return _value(reader, "current_mrr")
@@ -393,6 +449,7 @@ def finance_snapshot(reader: SheetReader) -> FinanceSnapshot:
         future_contracted_arr=future_contracted_arr(reader),
         nrr_quarterly=nrr_quarterly(reader), grr_quarterly=grr_quarterly(reader),
         billing_by_entity=billing_by_entity(reader), billing_by_currency=billing_by_currency(reader),
+        currency_position=currency_position(reader),
         average_client_mrr=average_client_mrr(reader),
         average_contract_length=average_contract_length(reader),
         average_contract_length_all_time=average_contract_length_all_time(reader), clv=clv(reader),

@@ -76,8 +76,31 @@ def dollars(value: Decimal, compact: bool = False) -> str:
     return "${:,.0f}".format(number)
 
 
+def native_money(value: Decimal | None, currency: str, compact: bool = False, absolute: bool = False) -> str:
+    if value is None:
+        return "Not available"
+    number = abs(float(value)) if absolute else float(value)
+    symbols = {"GBP": "\N{POUND SIGN}", "USD": "$", "EUR": "\N{EURO SIGN}"}
+    symbol = symbols.get(currency.upper(), "{} ".format(currency.upper()))
+    if compact and abs(number) >= 1_000_000:
+        return "{}{:.1f}m".format(symbol, number / 1_000_000)
+    if compact and abs(number) >= 1_000:
+        return "{}{:.1f}k".format(symbol, number / 1_000)
+    return "{}{:,.0f}".format(symbol, number)
+
+
 def percent(value: Decimal | None) -> str:
     return "Not available" if value is None else "{:.1f}%".format(float(value))
+
+
+def position_label(value: Decimal | None) -> str:
+    if value is None:
+        return "Not available"
+    if value > 0:
+        return "Surplus"
+    if value < 0:
+        return "Shortage"
+    return "Balanced"
 
 
 def comparison_metric(
@@ -205,6 +228,47 @@ def donut_chart(points):
     return (arcs + values_text + shares_text).properties(height=390)
 
 
+def currency_position_section(finance: FinanceSnapshot) -> None:
+    st.subheader("Billing by currency")
+    st.caption("Where our recurring revenue is collected.")
+    billing_rows = [{
+        "Currency": point.currency,
+        "Monthly billing": native_money(point.monthly_billing, point.currency),
+        "GBP equivalent": (
+            money(point.billing_gbp_equivalent)
+            if point.billing_gbp_equivalent is not None else "Not available"
+        ),
+        "% of total billing": percent(point.percentage_of_total),
+    } for point in finance.currency_position]
+    st.dataframe(pd.DataFrame(billing_rows), hide_index=True, use_container_width=True)
+
+    st.write("")
+    st.subheader("Currency Position")
+    st.caption("Monthly customer billing compared with expected monthly payments by currency.")
+    columns = st.columns(len(finance.currency_position))
+    for column, point in zip(columns, finance.currency_position):
+        label = position_label(point.net_position)
+        amount = native_money(point.net_position, point.currency, compact=True, absolute=True)
+        status_class = "favourable" if label == "Surplus" else "unfavourable" if label == "Shortage" else "neutral"
+        column.markdown(
+            '<div class="comparison-card">'
+            '<div class="comparison-label">{}</div>'
+            '<div class="comparison-delta {}">{}</div>'
+            '<div class="comparison-value">{}</div>'
+            '<div class="comparison-baseline">Monthly billing: {}</div>'
+            '<div class="comparison-baseline">Monthly requirements: {}</div>'
+            '</div>'.format(
+                escape(point.currency),
+                status_class,
+                escape(label),
+                escape(amount),
+                escape(native_money(point.monthly_billing, point.currency, compact=True)),
+                escape(native_money(point.monthly_requirements, point.currency, compact=True)),
+            ),
+            unsafe_allow_html=True,
+        )
+
+
 def financial_year_label(today: date | None = None) -> str:
     today = today or date.today()
     boundary = date(today.year, FINANCIAL_YEAR_START_MONTH, FINANCIAL_YEAR_START_DAY)
@@ -250,7 +314,7 @@ def revenue_contracts(finance: FinanceSnapshot, snapshot) -> None:
     cols[0].metric("Average current contract", "{:.1f} months".format(float(finance.average_contract_length)))
     cols[1].metric("Average contract — all time", "{:.1f} months".format(float(finance.average_contract_length_all_time)))
     st.write("")
-    st.info("Entity and currency revenue breakdowns are available on the Executive Summary.")
+    currency_position_section(finance)
 
 
 def renewals(finance: FinanceSnapshot, hubspot: HubSpotSnapshot, snapshot) -> None:
