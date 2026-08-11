@@ -90,12 +90,13 @@ THEME_CSS = """
     letter-spacing: .11em; margin: 1.15rem 0 .35rem; text-transform: uppercase; }
 
   [data-testid="stMetric"], .comparison-card { background: var(--surface);
-    border: 1px solid var(--border-subtle); border-radius: var(--radius); box-shadow: var(--shadow-subtle); }
-  [data-testid="stMetric"] { min-height: 132px; padding: 1.15rem 1.2rem; }
+    border: 1px solid var(--border-subtle); border-radius: var(--radius); box-shadow: var(--shadow-subtle);
+    box-sizing: border-box; min-height: 154px; }
+  [data-testid="stMetric"] { padding: 1.15rem 1.2rem; }
   [data-testid="stMetricLabel"], .comparison-label { color: var(--text-secondary); font-size: .82rem; }
   [data-testid="stMetricValue"], .comparison-value { color: var(--steel-grey); font-family: var(--ui-font);
     font-variant-numeric: tabular-nums; font-weight: 600; }
-  .comparison-card { min-height: 142px; padding: 1.15rem 1.2rem; }
+  .comparison-card { display: flex; flex-direction: column; padding: 1.15rem 1.2rem; }
   .comparison-card-static { display: flex; flex-direction: column; justify-content: flex-start; }
   .sales-kpi-grid { display: grid; gap: var(--space-3); grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .comparison-label { margin-bottom: var(--space-1); }
