@@ -2,6 +2,8 @@
 
 Streamlit dashboard using finance data from the Google Sheets `LIVE Totals` tab, commercial data from HubSpot, and monthly historical snapshots.
 
+For a full continuity handover covering what has been built, how it works, what each page shows, and how to pick the project up safely, see `docs/handover.md`.
+
 ## Local development
 
 1. Create a virtual environment and install `requirements.txt`.
